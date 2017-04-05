@@ -18,9 +18,14 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 ##############################################################################
-from openerp.osv import fields, orm
+
 import time
-import openerp.addons.decimal_precision as dp
+
+from openerp import api, fields as Fields, models
+from openerp.addons import decimal_precision as dp
+from openerp.osv import fields, orm
+
+
 _STATES = [
     ('draft', 'Draft'),
     ('to_approve', 'To be approved'),
@@ -157,11 +162,13 @@ class PurchaseRequest(orm.Model):
                           context=context)
 
 
-class PurchaseRequestLine(orm.Model):
-
+class PurchaseRequestLine(models.Model):
+    "Purchase Request Line"
     _name = "purchase.request.line"
-    _description = "Purchase Request Line"
-    _inherit = ['mail.thread', 'ir.needaction_mixin']
+    _description = __doc__
+    _inherit = [
+        'mail.thread', 'ir.needaction_mixin',
+    ]
     _rec_name = 'product_id'
 
     def _get_is_editable(self, cr, uid, ids, names, arg, context=None):
@@ -169,15 +176,6 @@ class PurchaseRequestLine(orm.Model):
         for line in self.browse(cr, uid, ids, context=context):
             if line.request_id.state in ('to_approve', 'approved', 'rejected'):
                 res[line.id] = False
-        return res
-
-    def _get_supplier(self, cr, uid, ids, names, arg, context=None):
-        res = dict.fromkeys(ids, False)
-        for line in self.browse(cr, uid, ids, context=context):
-            if line.product_id:
-                for product_supplier in line.product_id.seller_ids:
-                    res[line.id] = product_supplier.name.id
-                    break
         return res
 
     def _get_lines_from_request(self, cr, uid, ids, context=None):
@@ -192,8 +190,10 @@ class PurchaseRequestLine(orm.Model):
         'product_id': fields.many2one(
             'product.product', 'Product',
             domain=[('purchase_ok', '=', True)]),
-        'name': fields.char('Description', size=256, required=True,
-                            track_visibility='onchange'),
+        'name': fields.char(
+            'Description', size=256, required=True, default='',
+            track_visibility='onchange',
+        ),
         'product_uom_id': fields.many2one(
             'product.uom', 'Product Unit of Measure',
             track_visibility='onchange'),
@@ -255,15 +255,16 @@ class PurchaseRequestLine(orm.Model):
                                        store={'purchase.request': (
                                            _get_lines_from_request,
                                            None, 20)}),
-        'date_required': fields.date('Required date',
-                                     help="Date that the products are "
-                                          "required to be received or "
-                                          "services rendered.",
-                                     required=True,
-                                     track_visibility='onchange'),
-        'is_editable': fields.function(_get_is_editable,
-                                       string="Is editable",
-                                       type="boolean"),
+        'date_required': fields.date(
+            'Required date', required=True, track_visibility='onchange',
+            default=lambda *args: time.strftime('%Y-%m-%d %H:%M:%S'),
+            help='Date that the products are required to be received or '
+            'services rendered.',
+        ),
+        'is_editable': fields.function(
+            _get_is_editable, string='Is editable', type='boolean',
+            default=True,
+        ),
         'specifications': fields.text('Specifications'),
         'request_state': fields.related('request_id', 'state',
                                         string="Request state",
@@ -273,17 +274,30 @@ class PurchaseRequestLine(orm.Model):
                                         store={'purchase.request': (
                                            _get_lines_from_request,
                                            None, 20)}),
-        'supplier_id': fields.function(_get_supplier,
-                                       string="Preferred supplier",
-                                       type="many2one",
-                                       relation="res.partner",
-                                       readonly=True),
     }
-    _defaults = {
-        'date_required': lambda *args: time.strftime('%Y-%m-%d %H:%M:%S'),
-        'name': '',
-        'is_editable': True,
-    }
+
+    supplier_id = Fields.Many2one(
+        'res.partner', string='Preferred supplier',
+        compute='_compute_supplier_id', search='_search_supplier_id',
+        domain=[('supplier', '=', True), ('is_company', '=', True)],
+        readonly=True,
+    )
+
+    @api.depends('product_id', 'product_id.seller_ids')
+    def _compute_supplier_id(self):
+        for line in self:
+            if line.product_id:
+                for product_supplier in line.product_id.seller_ids:
+                    line.supplier_id = product_supplier.name.id
+                    break
+
+    def _search_supplier_id(self, operator, value):
+        """Allow search purchase request lines by supplier name
+        """
+        if operator == 'like':
+            operator = 'ilike'
+
+        return [('product_id.seller_ids.name', operator, value)]
 
     def onchange_product_id(self, cr, uid, ids, product_id,
                             product_uom_id, context=None):
