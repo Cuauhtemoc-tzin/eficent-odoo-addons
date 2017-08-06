@@ -126,10 +126,12 @@ class PurchaseOrderLine(orm.Model):
             'purchase_request_purchase_order_line_rel',
             'purchase_order_line_id',
             'purchase_request_line_id',
-            'Purchase Request Lines', readonly=True),
+            'Purchase Request Lines', readonly=True,
+        ),
         'has_purchase_request_lines': fields.function(
             _has_purchase_request_lines, type='boolean',
-            string="Has Purchase Request Lines")
+            string='Has Purchase Request Lines',
+        ),
     }
 
     def copy(self, cr, uid, id, default=None, context=None):
@@ -139,7 +141,8 @@ class PurchaseOrderLine(orm.Model):
             'purchase_request_lines': [],
         })
         return super(PurchaseOrderLine, self).copy(
-            cr, uid, id, default, context)
+            cr, uid, id, default=default, context=context,
+        )
 
     def action_openRequestLineTreeView(self, cr, uid, ids, context=None):
         """
