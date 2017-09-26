@@ -145,10 +145,9 @@ class PurchaseRequestLine(orm.Model):
         product_uom_obj = self.pool['product.uom']
         pricelist_obj = self.pool['product.pricelist']
         default_uom_po_id = product.uom_po_id.id
-        qty = product_uom_obj._compute_qty(cr, uid,
-                                           product_uom.id,
-                                           product_qty,
-                                           default_uom_po_id)
+        qty = product_uom_obj._compute_qty(
+            cr, uid, product_uom.id, product_qty, default_uom_po_id,
+        )
         seller_delay = 0.0
         seller_qty = False
         for product_supplier in product.seller_ids:
@@ -161,11 +160,11 @@ class PurchaseRequestLine(orm.Model):
         seller_price = pricelist_obj.price_get(
             cr, uid, [supplier_pricelist.id],
             product.id, qty, supplier.id,
-            {'uom': default_uom_po_id})[supplier_pricelist.id]
+            {'uom': default_uom_po_id},
+        )[supplier_pricelist.id]
         if seller_qty:
             qty = max(qty, seller_qty)
-        date_planned = self._planned_date(request_line,
-                                          seller_delay)
+        date_planned = self._planned_date(request_line, seller_delay)
         return seller_price, qty, default_uom_po_id, date_planned
 
     def _calc_new_qty_price(self, cr, uid, request_line,

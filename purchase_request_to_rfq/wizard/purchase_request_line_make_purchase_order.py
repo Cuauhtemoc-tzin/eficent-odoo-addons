@@ -127,12 +127,18 @@ class PurchaseRequestLineMakePurchaseOrder(orm.TransientModel):
         else:
             supplier = make_purchase_order.supplier_id
         product = item.product_id
-        seller_price, qty, default_uom_po_id, date_planned = \
-            purchase_req_line_obj._seller_details(cr, uid, item.line_id,
-                                                  item.product_id,
-                                                  item.product_qty,
-                                                  item.product_uom_id,
-                                                  supplier, context=context)
+        if product.exists():
+            seller_price, qty, default_uom_po_id, date_planned = \
+                purchase_req_line_obj._seller_details(
+                    cr, uid, item.line_id, item.product_id, item.product_qty,
+                    item.product_uom_id, supplier, context=context,
+                )
+        else:
+            seller_price = 0
+            qty = item.product_qty
+            default_uom_po_id = item.product_uom_id.id
+            date_planned = item.line_id.date_start
+
         taxes_ids = product.supplier_taxes_id
         taxes = fiscal_position.map_tax(
             cr, uid, supplier.property_account_position, taxes_ids)
@@ -141,7 +147,7 @@ class PurchaseRequestLineMakePurchaseOrder(orm.TransientModel):
             item.line_id.analytic_account_id.id or False
         return {
             'order_id': po_id,
-            'name': product.partner_ref,
+            'name': product and product.partner_ref or item.name,
             'product_qty': qty,
             'product_id': product.id,
             'product_uom': default_uom_po_id,
@@ -158,21 +164,21 @@ class PurchaseRequestLineMakePurchaseOrder(orm.TransientModel):
         purchase_req_line_obj = self.pool['purchase.request.line']
         purchase = purchase_obj.browse(cr, uid, order_id, context=context)
 
-        seller_price, qty, default_uom_po_id, date_planned = \
-            purchase_req_line_obj._seller_details(cr, uid, item.line_id,
-                                                  item.product_id,
-                                                  item.product_qty,
-                                                  item.product_uom_id,
-                                                  purchase.partner_id,
-                                                  context=context)
-        order_line_data = [('order_id', '=', order_id),
-                           ('product_id', '=', item.product_id.id or False),
-                           ('product_uom', '=', default_uom_po_id or
-                            False),
-                           ('account_analytic_id', '=',
-                            item.line_id.analytic_account_id.id or False)]
+        default_uom_po_id = False
+        if item.product_id.exists():
+            dummy, dummy, default_uom_po_id, dummy = purchase_req_line_obj._seller_details(
+                cr, uid, item.line_id, item.product_id, item.product_qty,
+                item.product_uom_id, purchase.partner_id, context=context,
+            )
+
+        order_line_data = [
+            ('order_id', '=', order_id),
+            ('product_id', '=', item.product_id.id or False),
+            ('product_uom', '=', default_uom_po_id or False),
+            ('account_analytic_id', '=', item.line_id.analytic_account_id.id or False),
+        ]
         if not item.product_id:
-            order_line_data['name'] = item.name
+            order_line_data.append(['name', '=', item.name])
         return order_line_data
 
     def make_purchase_order(self, cr, uid, ids, context=None):
@@ -237,9 +243,11 @@ class PurchaseRequestLineMakePurchaseOrder(orm.TransientModel):
             # product and UoM to sum quantities instead of creating a new
             # po line
             domain = self._get_order_line_search_domain(
-                cr, uid, purchase_id, item, context=context)
+                cr, uid, purchase_id, item, context=context,
+            )
             available_po_line_ids = po_line_obj.search(
-                cr, uid, domain, context=context)
+                cr, uid, domain, context=context,
+            )
             if available_po_line_ids:
                 po_line = po_line_obj.browse(
                     cr, uid, available_po_line_ids[0], context=context)
@@ -256,7 +264,8 @@ class PurchaseRequestLineMakePurchaseOrder(orm.TransientModel):
             else:
                 po_line_data = self._prepare_purchase_order_line(
                     cr, uid, purchase_id, make_purchase_order,
-                    item, context=context)
+                    item, context=context,
+                )
                 po_line_obj.create(cr, uid, po_line_data, context=context)
             res.append(purchase_id)
 
